@@ -16,7 +16,7 @@ Install `codegen` and make sure it is on your `PATH`:
 codegen --version
 ```
 
-See the [installation guide](https://www.codexx-dtdk.com/docs/getting-started/installation)
+See the [installation guide](https://codegen.codexx-dtdk.com/getting-started/installation/)
 if you don't have it yet.
 
 ## Using a rule
@@ -117,7 +117,7 @@ Once you've edited a rule it is yours; it will not be updated when the registry 
 ## Trust
 
 Rules are Luau scripts that run inside `codegen`'s
-[sandbox](https://www.codexx-dtdk.com/docs/rules/luau-sandbox). Filesystem, network, and
+[sandbox](https://codegen.codexx-dtdk.com/rules/luau-sandbox/). Filesystem, network, and
 environment access are opt-in per rule and declared in `config.yaml`; any rule requesting
 them gets a security review before merge and says so in its README.
 
@@ -125,10 +125,10 @@ Review the code before you run it — same as any dependency.
 
 ## Learn more
 
-- [Rule anatomy](https://www.codexx-dtdk.com/docs/rules/anatomy)
-- [Config schema reference](https://www.codexx-dtdk.com/docs/reference/config-schema)
+- [Rule anatomy](https://codegen.codexx-dtdk.com/rules/anatomy/)
+- [Config schema reference](https://codegen.codexx-dtdk.com/reference/config-schema/)
 - [Runnable examples](https://github.com/CodeXX-DTDK/codegen_examples)
-- [Full documentation](https://www.codexx-dtdk.com/docs)
+- [Full documentation](https://codegen.codexx-dtdk.com/)
 
 ## License
 

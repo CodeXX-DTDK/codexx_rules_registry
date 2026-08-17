@@ -6,9 +6,9 @@ body:
   - type: markdown
     attributes:
       value: |
-        For bugs in `codegen` itself (crashes, parse failures, CLI problems), report at
-        [codexx-dtdk.com/support](https://www.codexx-dtdk.com/support) instead — this
-        tracker is only for the rules published here.
+        For bugs in `codegen` itself (crashes, parse failures, CLI problems), see the
+        [support policy](https://codegen.codexx-dtdk.com/licensing/support/) instead —
+        this tracker is only for the rules published here.
 
   - type: input
     id: rule

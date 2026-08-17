@@ -6,9 +6,9 @@
       "kind": "codegen",
       "vendor": "codexx",
       "rule": "ToString",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "path": "rules/codegen/codexx/ToString",
-      "tag": "codegen/codexx.ToString@1.0.1",
+      "tag": "codegen/codexx.ToString@1.0.2",
       "description": "Generates a toString(E) -> std::string_view switch for each anchored C++ enum.",
       "outputLanguage": "cpp",
       "yanked": false
