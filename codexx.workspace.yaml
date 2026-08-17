@@ -1,0 +1,23 @@
+workspace:
+  name: codexx_rules_registry
+
+# Exists so `codegen` can run a rule's sample straight out of a fresh clone.
+# The workspace daemon needs a workspace to initialize against, and this
+# repository has no build system of its own — without this file, trying a rule
+# here fails at daemon startup.
+#
+# It has nothing to do with consuming a rule in your own project: there, your
+# project's CMake configuration or its own codexx.workspace.yaml supplies the
+# build context, and this file is irrelevant.
+
+projects:
+  - name: samples
+    type: executable
+
+    # Every rule's optional input.hpp. Glob so new rules are covered on merge
+    # with no edit here.
+    sources:
+      - rules/*/*/*/input.hpp
+
+    compiler_config:
+      standard: c++23

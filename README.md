@@ -27,23 +27,35 @@ Rules are namespaced by vendor, so two authors can both publish a `ToString`:
 rules/<kind>/<vendor>/<RuleName>/
 ```
 
-Clone the registry and point `codegen` at a **vendor** directory — that is the rules root:
+**Copy the rule directory into your own project.** This is the normal way to use the
+registry, and the one we recommend:
 
 ```sh
 git clone https://github.com/CodeXX-DTDK/codexx_rules_registry
-codegen -r codexx_rules_registry/rules/codegen/codexx -a ToString -i include/app/color.hpp
+cp -r codexx_rules_registry/rules/codegen/codexx/ToString my-project/.codegen/rules/
+cd my-project
+codegen -a ToString -i include/app/color.hpp
 ```
 
-Or just copy the one rule directory into your own project and forget about the registry:
+A rule is a handful of text files. Vendoring it means it lives in your repository, shows
+up in your diffs, and your build depends on nothing remote.
+
+You can also point `-r` at a **vendor directory** without copying — a vendor directory is
+a rules root:
 
 ```sh
-cp -r codexx_rules_registry/rules/codegen/codexx/ToString my-project/.codegen/rules/
-codegen -a ToString -i include/app/color.hpp
+codegen -r ../codexx_rules_registry/rules/codegen/codexx -a ToString -i include/app/color.hpp
 ```
 
 `-r` is the rules root (default `.codegen/rules`), `-a` names the rule to apply and is
 repeatable. The rule's directory name is also the C++ attribute token it matches —
 `[[codegen::ToString]]`.
+
+> **Run it from your project, not from this repo.** `codegen` resolves includes, defines,
+> and the C++ standard from the *workspace it is invoked in* — your CMake configuration or
+> your `codexx.workspace.yaml`. This repository ships its own `codexx.workspace.yaml` so
+> that a rule's bundled `input.hpp` sample can be run here; that file covers the samples
+> and nothing else.
 
 ## The catalog
 

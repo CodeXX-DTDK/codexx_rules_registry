@@ -62,12 +62,17 @@ An enum with no enumerators produces no output rather than an empty function.
 ## Try it here
 
 `input.hpp` in this directory is a runnable sample covering a scoped enum, an unscoped
-enum, and an enum declared after its anchor:
+enum, and an enum declared after its anchor. From the **registry root** (whose
+`codexx.workspace.yaml` gives the daemon a workspace to serve):
 
 ```sh
 codegen -r rules/codegen/codexx -a ToString \
         -i rules/codegen/codexx/ToString/input.hpp --dry-run
 ```
+
+The sample deliberately anchors one enum (`app::Direction`) that is never declared, so
+you should see a `W003 anchor references unknown entity (skipped)` — that is the rule
+declining to invent code for something it cannot see, not a failure.
 
 ## Files
 
