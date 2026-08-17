@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Publish a rule
+    url: https://github.com/CodeXX-DTDK/codexx_rules_registry/blob/main/CONTRIBUTING.md
+    about: Rules are published by pull request, not by issue.
+  - name: codegen bug or question
+    url: https://www.codexx-dtdk.com/support
+    about: Problems with the codegen tool itself, rather than a published rule.
+  - name: Documentation
+    url: https://www.codexx-dtdk.com/docs
+    about: Rule anatomy, config schema, and the Luau sandbox reference.

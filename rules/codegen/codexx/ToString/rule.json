@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "codexx.to-string",
+  "vendor": "codexx",
+  "rule": "ToString",
+  "version": "1.0.0",
+  "description": "Generates a toString(E) -> std::string_view switch for each anchored C++ enum.",
+  "authors": [{ "name": "William Karol Di Cioccio", "github": "Wilielmus" }],
+  "license": "MIT",
+  "homepage": "https://www.codexx-dtdk.com/docs/rules/registry",
+  "keywords": ["enum", "reflection", "tostring"],
+  "outputLanguage": "cpp",
+  "requires": [{ "component": "codegen", "range": ">=0.1.0 <1.0.0" }]
+}

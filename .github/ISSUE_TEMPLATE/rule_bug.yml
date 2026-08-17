@@ -1,0 +1,61 @@
+name: Rule bug
+description: A published rule generates wrong, uncompilable, or missing code
+title: "[bug] "
+labels: ["Type: Bug", "Status: Review Needed"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For bugs in `codegen` itself (crashes, parse failures, CLI problems), report at
+        [codexx-dtdk.com/support](https://www.codexx-dtdk.com/support) instead — this
+        tracker is only for the rules published here.
+
+  - type: input
+    id: rule
+    attributes:
+      label: Rule identity
+      description: From the rule's rule.json.
+      placeholder: codexx.to-string
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Rule version
+      placeholder: 1.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: codegen
+    attributes:
+      label: codegen version
+      description: Output of `codegen --version`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: input
+    attributes:
+      label: Input
+      description: The smallest C++ that reproduces it.
+      render: cpp
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What was generated
+      description: Paste the output, or the error if generation failed.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true

@@ -1,0 +1,13 @@
+# codegen output — produced by running a rule's sample, never committed.
+*.g.cpp
+*.g.hpp
+*.ToString.*
+*.TypeScriptTypes.*
+generated/
+
+# A published rule must never carry a dotenv (the loader reads it).
+# Ignored so a local one cannot be staged by accident; CI rejects it regardless.
+.env
+
+__pycache__/
+*.pyc

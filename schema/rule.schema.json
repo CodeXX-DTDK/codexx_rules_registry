@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/CodeXX-DTDK/codexx_rules_registry/main/schema/rule.schema.json",
+  "title": "CodeXX rule manifest",
+  "description": "Manifest for a rule published to the CodeXX rules registry (ADR-081 section 3).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "vendor",
+    "rule",
+    "version",
+    "description",
+    "authors",
+    "license"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "description": "Version of this manifest schema. Only 1 exists.",
+      "const": 1
+    },
+    "id": {
+      "description": "ADR-079 identity: vendor.rulename, both segments [a-z0-9-]+, exactly one dot. Must equal kebab(vendor) + '.' + kebab(rule).",
+      "type": "string",
+      "pattern": "^[a-z0-9-]+\\.[a-z0-9-]+$"
+    },
+    "vendor": {
+      "description": "Vendor tag. Must match the parent directory name. 'codexx' is reserved to CodeXX-DTDK org members (ADR-081 section 6).",
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "rule": {
+      "description": "Rule name. Must match the rule directory name, and is the C++ attribute token the rule matches: [[codegen::<rule>]].",
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+    },
+    "version": {
+      "description": "Rule version, semver MAJOR.MINOR.PATCH. Must increase on every content change. No channels, no prerelease labels.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "description": {
+      "description": "One sentence describing what the rule generates. Shown in index.json and on the registry listing.",
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 200
+    },
+    "authors": {
+      "description": "Credit for the rule. The bundled LICENSE is the repo-wide MIT; attribution lives here (ADR-081 section 6).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "github": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*$" },
+          "email": { "type": "string", "format": "email" }
+        }
+      }
+    },
+    "license": {
+      "description": "SPDX identifier. Published rules are MIT; the bundled LICENSE must be byte-identical to the repo root LICENSE.",
+      "const": "MIT"
+    },
+    "homepage": {
+      "description": "Optional upstream or documentation URL.",
+      "type": "string",
+      "format": "uri"
+    },
+    "keywords": {
+      "description": "Optional search terms for the registry listing.",
+      "type": "array",
+      "maxItems": 10,
+      "items": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+    },
+    "outputLanguage": {
+      "description": "Must agree with output.language in config.yaml. Denormalized here so index.json is self-contained.",
+      "type": "string",
+      "enum": [
+        "cpp",
+        "csharp",
+        "kotlin",
+        "swift",
+        "typescript",
+        "plain",
+        "markdown",
+        "html",
+        "mdx"
+      ]
+    },
+    "requires": {
+      "description": "Component version constraints, ADR-067 section 2 grammar: '>=X.Y.Z' or '>=X.Y.Z <A.B.C'. No caret, no tilde.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component", "range"],
+        "properties": {
+          "component": { "type": "string", "enum": ["codegen"] },
+          "range": {
+            "type": "string",
+            "pattern": "^>=[0-9]+\\.[0-9]+\\.[0-9]+( <[0-9]+\\.[0-9]+\\.[0-9]+)?$"
+          }
+        }
+      }
+    },
+    "yanked": {
+      "description": "Set true to withdraw this rule. Propagates to index.json. The published tag is never deleted (ADR-036 section 5).",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

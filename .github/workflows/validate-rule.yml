@@ -1,0 +1,87 @@
+name: Validate rules
+
+# Runs the ADR-081 §5 gates on every PR. Needs no secrets: everything is
+# computable from the checkout plus the PR's own metadata.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate rules
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Need the base commit too, for the version-bump gate.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validator dependencies
+        run: pip install pyyaml jsonschema
+
+      # The reserved-vendor gate needs to know who may claim `codexx`. Public
+      # org members are readable anonymously; if the call fails we write an
+      # empty list, which fails closed (nobody may claim it) rather than open.
+      - name: Resolve org membership
+        if: github.event_name == 'pull_request'
+        run: |
+          curl -sf "https://api.github.com/orgs/CodeXX-DTDK/public_members?per_page=100" \
+            | python3 -c 'import json,sys; [print(m["login"]) for m in json.load(sys.stdin)]' \
+            > org-members.txt || : > org-members.txt
+          echo "resolved $(wc -l < org-members.txt) public org member(s)"
+
+      - name: Validate (pull request)
+        if: github.event_name == 'pull_request'
+        run: |
+          python3 scripts/validate_registry.py \
+            --base "origin/${{ github.base_ref }}" \
+            --actor "${{ github.event.pull_request.user.login }}" \
+            --org-members org-members.txt
+
+      - name: Validate (push)
+        if: github.event_name != 'pull_request'
+        run: python3 scripts/validate_registry.py
+
+  # Surfaces capability escapes to a human. Advisory: the validator already
+  # emits the warning, this makes it visible without opening the log.
+  label-security-review:
+    name: Flag permission escapes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for declared permissions
+        id: perms
+        run: |
+          if grep -rlE '^\s*(http|env):' rules/*/*/*/config.yaml 2>/dev/null | grep -q .; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply label
+        if: steps.perms.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr edit "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --add-label "Needs: Security Review"

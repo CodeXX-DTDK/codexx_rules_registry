@@ -1,0 +1,61 @@
+name: Rule request
+description: Suggest a rule you'd like to see published
+title: "[rule request] "
+labels: ["Type: Rule Submission", "Status: Review Needed"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Want to publish a rule yourself? Open a PR instead — see
+        [CONTRIBUTING.md](../blob/main/CONTRIBUTING.md). Use this form to propose
+        one you'd like someone else to write.
+
+  - type: input
+    id: name
+    attributes:
+      label: Proposed rule name
+      description: PascalCase — it doubles as the C++ attribute token.
+      placeholder: ToString
+    validations:
+      required: true
+
+  - type: textarea
+    id: generates
+    attributes:
+      label: What should it generate?
+      description: Show the annotated C++ going in and the code you want out.
+      render: cpp
+    validations:
+      required: true
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Output language
+      options:
+        - cpp
+        - csharp
+        - kotlin
+        - swift
+        - typescript
+        - plain
+        - markdown
+        - html
+        - mdx
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why is this worth publishing?
+      description: What boilerplate does it remove, and for whom?
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Would you write it?
+      options:
+        - label: I'd be willing to author this rule myself

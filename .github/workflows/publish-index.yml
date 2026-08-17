@@ -1,0 +1,72 @@
+name: Publish rule tags
+
+# On merge to main, tag every rule at its current version. Tags are immutable
+# (ADR-036 §5 / ADR-081 §4): an existing tag is skipped, never moved, never
+# deleted. A yanked rule keeps its tags and is flagged in index.json instead.
+#
+# Uses only GITHUB_TOKEN. Note that refs pushed with it do not trigger further
+# workflows — fine here, since nothing chains off these tags.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'rules/**'
+      - 'index.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish-index
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag current rule versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install validator dependencies
+        run: pip install pyyaml jsonschema
+
+      # index.json is committed, but regenerate and diff so a hand-edit can
+      # never become the source of truth for what gets tagged.
+      - name: Verify index.json is current
+        run: |
+          python3 scripts/validate_registry.py --write-index
+          if ! git diff --quiet -- index.json; then
+            echo "::error::index.json was stale on main — regenerate with 'python3 scripts/validate_registry.py --write-index'"
+            git --no-pager diff -- index.json
+            exit 1
+          fi
+
+      - name: Push tags for new versions
+        run: |
+          git config user.name  "codexx-registry-bot"
+          git config user.email "noreply@codexx-dtdk.com"
+
+          created=0 skipped=0
+          for tag in $(jq -r '.rules[] | select(.yanked | not) | .tag' index.json); do
+            if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+              echo "skip   $tag (already published — tags are immutable)"
+              skipped=$((skipped + 1))
+              continue
+            fi
+            git tag -a "$tag" -m "Publish $tag"
+            echo "tag    $tag"
+            created=$((created + 1))
+          done
+
+          if [ "$created" -gt 0 ]; then
+            git push origin --tags
+          fi
+          echo "$created tag(s) created, $skipped already published" >> "$GITHUB_STEP_SUMMARY"
