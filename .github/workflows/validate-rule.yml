@@ -58,8 +58,12 @@ jobs:
 
   # Surfaces capability escapes to a human. Advisory: the validator already
   # emits the warning, this makes it visible without opening the log.
+  #
+  # Component changes are labelled on the same footing. A component is code that runs inside
+  # every rule that requires it, so its blast radius is wider than the rule it arrived with --
+  # a reviewer should see that on the PR, not infer it from the diff.
   label-security-review:
-    name: Flag permission escapes
+    name: Flag permission escapes and component changes
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     permissions:
@@ -67,6 +71,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Check for declared permissions
         id: perms
@@ -77,8 +83,18 @@ jobs:
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check for component changes
+        id: components
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+              | grep -qE '^(components/|rules/.*/components/)'; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Apply label
-        if: steps.perms.outputs.found == 'true'
+        if: steps.perms.outputs.found == 'true' || steps.components.outputs.found == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

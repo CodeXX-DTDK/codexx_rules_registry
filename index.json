@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "rules": [
     {
       "id": "codexx.to-string",
@@ -11,7 +11,15 @@
       "tag": "codegen/codexx.ToString@1.0.2",
       "description": "Generates a toString(E) -> std::string_view switch for each anchored C++ enum.",
       "outputLanguage": "cpp",
-      "yanked": false
+      "yanked": false,
+      "requires": [
+        {
+          "component": "codegen",
+          "range": ">=0.1.0 <1.0.0"
+        }
+      ]
     }
-  ]
+  ],
+  "rulesWithComponents": [],
+  "components": []
 }

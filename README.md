@@ -24,7 +24,8 @@ if you don't have it yet.
 Rules are namespaced by vendor, so two authors can both publish a `ToString`:
 
 ```
-rules/<kind>/<vendor>/<RuleName>/
+rules/<kind>/<vendor>/<RuleName>/                    a rule
+components/codegen-component/<vendor>/<name>/        a reusable Luau module
 ```
 
 **Copy the rule directory into your own project.** This is the normal way to use the
@@ -51,6 +52,22 @@ codegen -r ../codexx_rules_registry/rules/codegen/codexx -a ToString -i include/
 repeatable. The rule's directory name is also the C++ attribute token it matches —
 `[[codegen::ToString]]`.
 
+A rule published as **namespaced** installs to `.codegen/rules/<vendor>/<RuleName>/`, is
+named `-a <vendor>/<RuleName>`, and matches `[[<vendor>::<RuleName>]]`. That is what lets two
+vendors' same-named rules sit in one project at once.
+
+## Components
+
+A **component** is a reusable Luau module a rule reaches with
+`require("<vendor>/<name>")`. Components are published, versioned, and reviewed like rules,
+and install to `.codegen/shared/<vendor>/`. `codegen --browse-rules-registry` installs a
+rule's components along with it.
+
+They exist so a vendor's second and third rules can share code instead of carrying a copy
+each. A rule must declare every component it uses, and the declaration must be closed over
+the components' own dependencies — so installation is a flat download with no version
+solving and nothing to resolve at install time.
+
 > **Run it from your project, not from this repo.** `codegen` resolves includes, defines,
 > and the C++ standard from the *workspace it is invoked in* — your CMake configuration or
 > your `codexx.workspace.yaml`. This repository ships its own `codexx.workspace.yaml` so
@@ -66,7 +83,7 @@ merge. Fetch it raw; you don't need to clone to see what's available.
 
 | File | Purpose |
 |---|---|
-| `rule.json` | registry manifest — identity, version, authors, `codegen` compatibility |
+| `rule.json` | registry manifest — identity, version, authors, `codegen` compatibility, `uses` |
 | `README.md` | what it generates, how to trigger it, what comes out |
 | `LICENSE` | verbatim copy of this repo's MIT license, so the grant travels with the rule |
 | `config.yaml` | output language + rule options |

@@ -40,14 +40,32 @@ INDEX_PATH = REPO / "index.json"
 KINDS = ("codegen",)
 RESERVED_VENDORS = ("codexx",)
 
+COMPONENTS_ROOT = REPO / "components"
+COMPONENT_SCHEMA_PATH = REPO / "schema" / "component.schema.json"
+COMPONENT_KIND = "codegen-component"
+
 REQUIRED_FILES = ("rule.json", "README.md", "LICENSE", "config.yaml",
                   "transform.luau", "preamble.luau")
 OPTIONAL_FILES = ("grouping.luau", "input.hpp")
 
-# Globals exported by <rulesDir>/../shared/*.luau. That directory is Team-tier
-# gated and first-party — a rule that needs it hard-fails E102 for most of its
-# audience, so published rules must be self-contained (ADR-081 section 5.6).
-SHARED_GLOBALS = ("makeTypesystem", "makeJSONCodegen", "makeBytePackCodegen")
+# A rule may ship private components in its own subdirectory. They install under the rule's
+# own vendor namespace and are not separately versioned, so they are for helpers nobody else
+# should depend on -- anything shared is published as its own unit (ADR-083 section 4).
+EMBEDDED_COMPONENTS_DIR = "components"
+MAX_EMBEDDED_COMPONENTS = 16
+
+COMPONENT_REQUIRED_FILES = ("component.json", "README.md", "LICENSE", "component.luau")
+
+# The three helpers gate 6 used to name as a proxy for "self-contained". They are first-party
+# internals of the monorepo's own codegen tree, published nowhere, so a rule reaching for them
+# is still broken for its audience -- but the real check is now structural (every require()
+# must be declared). This list survives only to give the specific, actionable message.
+LEGACY_SHARED_GLOBALS = ("makeTypesystem", "makeJSONCodegen", "makeBytePackCodegen")
+
+# require("acme/typesystem") -- literal argument only. A computed one cannot be validated, and
+# a rule whose dependencies cannot be enumerated cannot be published.
+REQUIRE_LITERAL_RE = re.compile(r"require\s*\(\s*['\"]([^'\"]+)['\"]\s*\)")
+REQUIRE_ANY_RE = re.compile(r"require\s*\(")
 
 MIN_README_BYTES = 200
 
@@ -96,6 +114,168 @@ def discover_rules() -> list[tuple[str, str, Path]]:
     return found
 
 
+def validate_embedded_components(comp_dir: Path, where: str, f: Findings):
+    """A rule's private components/ directory: .luau files only, one level, lowercase stems."""
+    entries = sorted(comp_dir.iterdir())
+
+    if len(entries) > MAX_EMBEDDED_COMPONENTS:
+        f.error(where, f"{EMBEDDED_COMPONENTS_DIR}/ holds more than "
+                       f"{MAX_EMBEDDED_COMPONENTS} files")
+
+    for entry in entries:
+        rel = f"{EMBEDDED_COMPONENTS_DIR}/{entry.name}"
+
+        if entry.is_dir():
+            f.error(where, f"{rel} is a directory — embedded components are flat .luau files")
+        elif entry.suffix != ".luau":
+            f.error(where, f"{rel} is not a .luau module")
+        elif not re.fullmatch(r"[a-z][a-z0-9_-]*", entry.stem):
+            # Lowercase only: two stems differing in case are one file on Windows and macOS
+            # and two on Linux, so a mixed-case name resolves differently per consumer.
+            f.error(where, f"{rel}: component names must match [a-z][a-z0-9_-]*")
+
+
+def discover_components() -> list[tuple[str, str, Path]]:
+    """Yield (kind, vendor, component_dir) for every published component."""
+    found = []
+    if not COMPONENTS_ROOT.is_dir():
+        return found
+    for kind_dir in sorted(p for p in COMPONENTS_ROOT.iterdir() if p.is_dir()):
+        for vendor_dir in sorted(p for p in kind_dir.iterdir() if p.is_dir()):
+            for comp_dir in sorted(p for p in vendor_dir.iterdir() if p.is_dir()):
+                found.append((kind_dir.name, vendor_dir.name, comp_dir))
+    return found
+
+
+def validate_component(kind, vendor, comp_dir, schema, root_license_hash, f: Findings):
+    """Component equivalent of validate_rule. Returns its manifest, or None."""
+    where = str(comp_dir.relative_to(REPO))
+
+    if kind != COMPONENT_KIND:
+        f.error(where, f"unknown component kind '{kind}' — expected '{COMPONENT_KIND}'")
+        return None
+
+    for name in COMPONENT_REQUIRED_FILES:
+        if not (comp_dir / name).is_file():
+            f.error(where, f"missing required file '{name}'")
+
+    for extra in sorted(p.name for p in comp_dir.iterdir()):
+        if extra == ".env":
+            f.error(where, "'.env' is not permitted in a published component")
+        elif extra not in COMPONENT_REQUIRED_FILES:
+            f.warn(where, f"unrecognized file '{extra}' — it will not be installed")
+
+    if not (comp_dir / "component.json").is_file():
+        return None
+
+    try:
+        manifest = json.loads((comp_dir / "component.json").read_text())
+    except json.JSONDecodeError as e:
+        f.error(where, f"component.json is not valid JSON: {e}")
+        return None
+
+    try:
+        jsonschema.validate(manifest, schema)
+    except jsonschema.ValidationError as e:
+        f.error(where, f"component.json: {e.message} (at {'/'.join(str(x) for x in e.path)})")
+        return None
+
+    if manifest["vendor"] != vendor:
+        f.error(where, f"vendor '{manifest['vendor']}' does not match the directory '{vendor}'")
+    if manifest["name"] != comp_dir.name:
+        f.error(where, f"name '{manifest['name']}' does not match the directory "
+                       f"'{comp_dir.name}'")
+
+    expected_id = f"{kebab(manifest['vendor'])}.{manifest['name']}"
+    if manifest["id"] != expected_id:
+        f.error(where, f"id '{manifest['id']}' should be '{expected_id}'")
+
+    if (comp_dir / "LICENSE").is_file() and sha256(comp_dir / "LICENSE") != root_license_hash:
+        f.error(where, "LICENSE is not byte-identical to the repository root LICENSE")
+
+    if (comp_dir / "README.md").is_file() and \
+            len((comp_dir / "README.md").read_bytes()) < MIN_README_BYTES:
+        f.error(where, f"README.md is shorter than {MIN_README_BYTES} bytes — say what the "
+                       f"component provides and how to use it")
+
+    module = comp_dir / "component.luau"
+    if module.is_file():
+        src = module.read_text()
+
+        # A module that returns nothing is an E028 at run time for every rule that requires
+        # it. Cheap to catch here, and impossible to diagnose from the consumer's side.
+        if not re.search(r"^\s*return\b", src, re.MULTILINE):
+            f.error(where, "component.luau has no top-level `return` — a component must "
+                           "return its module value")
+
+        declared = {u["component"].replace(".", "/", 1) for u in manifest.get("uses", [])}
+
+        literal_count = len(REQUIRE_LITERAL_RE.findall(src))
+        if len(REQUIRE_ANY_RE.findall(src)) != literal_count:
+            f.error(where, "component.luau calls require() with a non-literal argument")
+
+        for key in REQUIRE_LITERAL_RE.findall(src):
+            if key not in declared:
+                f.error(where, f"component.luau requires '{key}', which is not declared in "
+                               f"component.json 'uses'")
+
+    manifest["_kind"] = kind
+    manifest["_path"] = str(comp_dir.relative_to(REPO)).replace("\\", "/")
+    return manifest
+
+
+def check_uses_closure(rule_manifests, component_manifests, f: Findings):
+    """A rule must declare every component it will transitively need.
+
+    This is what lets the installer stay a flat loop with no version solver: the rule names
+    the whole set, so nothing has to be discovered at install time. It also means a component
+    adding a dependency is a breaking change for its consumers, which is deliberate -- it
+    surfaces at publish time here rather than as an E027 on a user's machine.
+    """
+    by_id = {m["id"]: m for m in component_manifests}
+
+    for m in component_manifests:
+        for dep in (u["component"] for u in m.get("uses", [])):
+            if dep not in by_id:
+                f.error(m["_path"], f"uses '{dep}', which is not published in this registry")
+
+    # Cycle check over the component graph.
+    state: dict[str, int] = {}
+
+    def visit(cid: str, chain: list[str]) -> None:
+        if state.get(cid) == 2:
+            return
+        if state.get(cid) == 1:
+            f.error(by_id[cid]["_path"], "component cycle: " + " -> ".join(chain + [cid]))
+            return
+        state[cid] = 1
+        for dep in (u["component"] for u in by_id.get(cid, {}).get("uses", [])):
+            if dep in by_id:
+                visit(dep, chain + [cid])
+        state[cid] = 2
+
+    for cid in by_id:
+        visit(cid, [])
+
+    def closure(cid: str, seen: set[str]) -> set[str]:
+        for dep in (u["component"] for u in by_id.get(cid, {}).get("uses", [])):
+            if dep not in seen:
+                seen.add(dep)
+                closure(dep, seen)
+        return seen
+
+    for m in rule_manifests:
+        declared = {u["component"] for u in m.get("uses", [])}
+        needed: set[str] = set()
+        for cid in declared:
+            needed |= closure(cid, set())
+
+        missing = needed - declared
+        if missing:
+            f.error(m["_path"], "uses[] is not closed: also needs " + ", ".join(sorted(missing)) +
+                                " (a component it uses depends on them)")
+
+
 def validate_rule(kind, vendor, rule_dir, schema, root_license_hash, f: Findings):
     """Run gates 1 and 3-7, 9 for one rule. Returns its manifest, or None."""
     where = str(rule_dir.relative_to(REPO))
@@ -116,6 +296,8 @@ def validate_rule(kind, vendor, rule_dir, schema, root_license_hash, f: Findings
         if extra == ".env":
             f.error(where, "'.env' is not permitted in a published rule — "
                            "the loader reads it, and secrets must not be published")
+        elif extra == EMBEDDED_COMPONENTS_DIR and (rule_dir / extra).is_dir():
+            validate_embedded_components(rule_dir / extra, where, f)
         elif extra not in known:
             f.warn(where, f"unrecognized file '{extra}' — it will be ignored by codegen")
 
@@ -195,13 +377,39 @@ def validate_rule(kind, vendor, rule_dir, schema, root_license_hash, f: Findings
                 f.warn(where, "declares permissions.registry — parsed but ignored by the "
                               "engine (W006); ADR-081 section 7 keeps it reserved")
 
-    # --- gate 6: no dependence on shared/ ------------------------------------
-    for script in sorted(rule_dir.glob("*.luau")):
+    # --- gate 6: everything the rule uses must be declared -------------------
+    #
+    # Superseded form of "published rules must be self-contained" (ADR-083 section 4). The old
+    # check grepped for three first-party helper names, which was a proxy: it caught the only
+    # undeclared dependency that existed at the time and nothing else. The property is the same
+    # -- a published rule works for whoever installs it -- but it is now checked structurally.
+    declared = {u["component"].replace(".", "/", 1)
+                for u in manifest.get("uses", [])}
+
+    embedded = {f"{vendor}/{p.stem}"
+                for p in (rule_dir / EMBEDDED_COMPONENTS_DIR).glob("*.luau")} \
+        if (rule_dir / EMBEDDED_COMPONENTS_DIR).is_dir() else set()
+
+    for script in sorted(rule_dir.rglob("*.luau")):
         src = script.read_text()
-        for g in SHARED_GLOBALS:
+        rel = script.relative_to(rule_dir).as_posix()
+
+        literal_count = len(REQUIRE_LITERAL_RE.findall(src))
+        if len(REQUIRE_ANY_RE.findall(src)) != literal_count:
+            f.error(where, f"{rel} calls require() with a non-literal argument — a rule whose "
+                           f"dependencies cannot be enumerated cannot be validated")
+
+        for key in REQUIRE_LITERAL_RE.findall(src):
+            if key in declared or key in embedded:
+                continue
+            f.error(where, f"{rel} requires '{key}', which is neither declared in "
+                           f"rule.json 'uses' nor shipped in {EMBEDDED_COMPONENTS_DIR}/")
+
+        for g in LEGACY_SHARED_GLOBALS:
             if re.search(rf"\b{re.escape(g)}\b", src):
-                f.error(where, f"{script.name} calls '{g}', provided by the Team-tier "
-                               f"shared/ libraries — published rules must be self-contained")
+                f.error(where, f"{rel} calls '{g}', a first-party helper from the monorepo's "
+                               f"own tree that is published nowhere — depend on a published "
+                               f"component instead, e.g. require(\"codexx/typesystem\")")
 
     manifest["_kind"] = kind
     manifest["_path"] = str(rule_dir.relative_to(REPO)).replace("\\", "/")
@@ -255,24 +463,64 @@ def check_version_bumps(manifests, base: str, f: Findings):
                           f"({old_version} -> {m['version']})")
 
 
-def build_index(manifests) -> dict:
+def _rule_row(m: dict) -> dict:
+    row = {
+        "id": m["id"],
+        "kind": m["_kind"],
+        "vendor": m["vendor"],
+        "rule": m["rule"],
+        "version": m["version"],
+        "path": m["_path"],
+        "tag": f"{m['_kind']}/{m['vendor']}.{m['rule']}@{m['version']}",
+        "description": m["description"],
+        "outputLanguage": m.get("outputLanguage", "cpp"),
+        "yanked": m.get("yanked", False),
+    }
+    if m.get("namespaced"):
+        row["namespaced"] = True
+    if m.get("uses"):
+        row["uses"] = [u["component"].replace(".", "/", 1) for u in m["uses"]]
+    if m.get("requires"):
+        row["requires"] = m["requires"]
+    return row
+
+
+def _component_row(m: dict) -> dict:
+    row = {
+        "id": m["id"],
+        "kind": m["_kind"],
+        "vendor": m["vendor"],
+        "name": m["name"],
+        "version": m["version"],
+        "path": m["_path"],
+        "tag": f"{m['_kind']}/{m['vendor']}.{m['name']}@{m['version']}",
+        "description": m["description"],
+        "yanked": m.get("yanked", False),
+    }
+    if m.get("uses"):
+        row["uses"] = [u["component"].replace(".", "/", 1) for u in m["uses"]]
+    if m.get("requires"):
+        row["requires"] = m["requires"]
+    return row
+
+
+def build_index(manifests, component_manifests=()) -> dict:
+    """Partition the catalog so an ALREADY-RELEASED codegen stays correct.
+
+    A shipped client reads doc["rules"] and nothing else -- not schemaVersion, not any sibling
+    key. So `rules` holds only rules that client can actually run: self-contained ones. A rule
+    that gains components moves to `rulesWithComponents` and disappears from its view, which is
+    visible ("it vanished") rather than broken ("it installed and every run fails"). That is as
+    loud as a binary already in the wild can be made.
+    """
+    ordered = sorted(manifests, key=lambda m: m["id"])
+
     return {
-        "schemaVersion": 1,
-        "rules": [
-            {
-                "id": m["id"],
-                "kind": m["_kind"],
-                "vendor": m["vendor"],
-                "rule": m["rule"],
-                "version": m["version"],
-                "path": m["_path"],
-                "tag": f"{m['_kind']}/{m['vendor']}.{m['rule']}@{m['version']}",
-                "description": m["description"],
-                "outputLanguage": m.get("outputLanguage", "cpp"),
-                "yanked": m.get("yanked", False),
-            }
-            for m in sorted(manifests, key=lambda m: m["id"])
-        ],
+        "schemaVersion": 2,
+        "rules": [_rule_row(m) for m in ordered if not m.get("uses")],
+        "rulesWithComponents": [_rule_row(m) for m in ordered if m.get("uses")],
+        "components": [_component_row(m)
+                       for m in sorted(component_manifests, key=lambda m: m["id"])],
     }
 
 
@@ -291,11 +539,13 @@ def main() -> int:
 
     f = Findings()
     schema = json.loads(SCHEMA_PATH.read_text())
+    component_schema = json.loads(COMPONENT_SCHEMA_PATH.read_text())
     root_license_hash = sha256(ROOT_LICENSE)
 
     rules = discover_rules()
-    if not rules:
-        print("no rules found under rules/ — nothing to validate")
+    components = discover_components()
+    if not rules and not components:
+        print("nothing found under rules/ or components/ — nothing to validate")
 
     manifests = []
     for kind, vendor, rule_dir in rules:
@@ -303,27 +553,46 @@ def main() -> int:
         if m:
             manifests.append(m)
 
+    component_manifests = []
+    for kind, vendor, comp_dir in components:
+        m = validate_component(kind, vendor, comp_dir, component_schema, root_license_hash, f)
+        if m:
+            component_manifests.append(m)
+
     seen: dict[str, str] = {}
-    for m in manifests:
+    for m in manifests + component_manifests:
         if m["id"] in seen:
             f.error(m["_path"], f"identity '{m['id']}' already used by {seen[m['id']]}")
         seen[m["id"]] = m["_path"]
+
+    # Every component a rule declares must exist and be usable.
+    published = {m["id"] for m in component_manifests}
+    for m in manifests:
+        for dep in (u["component"] for u in m.get("uses", [])):
+            if dep not in published:
+                f.error(m["_path"], f"uses '{dep}', which is not published in this registry")
+            elif next(c for c in component_manifests if c["id"] == dep).get("yanked"):
+                f.error(m["_path"], f"uses '{dep}', which is yanked")
+
+    check_uses_closure(manifests, component_manifests, f)
 
     members = set()
     if args.org_members and Path(args.org_members).is_file():
         members = {ln.strip().lower() for ln in
                    Path(args.org_members).read_text().splitlines() if ln.strip()}
-    check_reserved_vendors(manifests, args.actor, members, f)
+    check_reserved_vendors(manifests + component_manifests, args.actor, members, f)
 
     if args.base:
         check_version_bumps(manifests, args.base, f)
+        check_version_bumps(component_manifests, args.base, f)
 
     # --- index.json ----------------------------------------------------------
-    index = build_index(manifests)
+    index = build_index(manifests, component_manifests)
     rendered = json.dumps(index, indent=2) + "\n"
     if args.write_index:
         INDEX_PATH.write_text(rendered)
-        print(f"wrote {INDEX_PATH.relative_to(REPO)} ({len(manifests)} rules)")
+        print(f"wrote {INDEX_PATH.relative_to(REPO)} "
+              f"({len(manifests)} rules, {len(component_manifests)} components)")
     elif not f.errors:
         current = INDEX_PATH.read_text() if INDEX_PATH.is_file() else ""
         if current != rendered:
@@ -335,10 +604,12 @@ def main() -> int:
     for e in f.errors:
         print(f"error: {e}", file=sys.stderr)
 
+    units = len(rules) + len(components)
     if f.errors:
-        print(f"\n{len(f.errors)} error(s) across {len(rules)} rule(s)", file=sys.stderr)
+        print(f"\n{len(f.errors)} error(s) across {units} unit(s)", file=sys.stderr)
         return 1
-    print(f"ok — {len(rules)} rule(s) validated, {len(f.warnings)} warning(s)")
+    print(f"ok — {len(rules)} rule(s), {len(components)} component(s) validated, "
+          f"{len(f.warnings)} warning(s)")
     return 0
 
 

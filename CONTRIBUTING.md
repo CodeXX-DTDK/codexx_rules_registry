@@ -37,10 +37,15 @@ rules/codegen/acme/ToString/
     preamble.luau    required
     grouping.luau    optional
     input.hpp        optional — a sample header your rule runs against
+    components/      optional — private Luau modules, flat .luau, lowercase stems
 ```
 
-`<RuleName>` is also the C++ attribute token your rule matches (`[[codegen::ToString]]`),
-so it is `PascalCase`, not kebab.
+`<RuleName>` is also the C++ attribute token your rule matches — `[[codegen::ToString]]`, or
+`[[acme::ToString]]` if you set `"namespaced": true` (see below) — so it is `PascalCase`, not
+kebab.
+
+A rule may also ship private helpers in a `components/` subdirectory; see *Publishing a
+component*.
 
 ### `rule.json`
 
@@ -65,7 +70,15 @@ so it is `PascalCase`, not kebab.
   boundaries become dashes, so `JSONSerializable` becomes `json-serializable` — the
   validator tells you the expected value if you get it wrong.
 - **`version`** is plain semver. No channels, no `-rc.1`.
-- **`requires[].range`** is `>=X.Y.Z` or `>=X.Y.Z <A.B.C`. No caret, no tilde.
+- **`requires[].range`** is the codegen version your rule needs: `>=X.Y.Z` or
+  `>=X.Y.Z <A.B.C`. No caret, no tilde. codegen now **enforces** this — a user whose build is
+  outside the range is told to update rather than installing a rule that cannot run. Set the
+  floor to the oldest codegen you have actually tested against; if your rule uses components,
+  that floor is the first release that understands them.
+- **`uses`** lists the components your rule requires — see *Publishing a component* below.
+  Declaring anything here also opts your rule out of the consumer's own flat `shared/`
+  scripts, which is the isolation a published rule wants: your rule should not absorb whatever
+  else happens to be sitting in someone's tree.
 
 The full schema is [`schema/rule.schema.json`](./schema/rule.schema.json).
 
@@ -74,16 +87,86 @@ The full schema is [`schema/rule.schema.json`](./schema/rule.schema.json).
 Say what the rule generates, how to trigger it, and what the output looks like. Show the
 generated code. If your rule requests any permission, explain why.
 
-## Rules must be self-contained
+## Rules must declare everything they use
 
-Everything your rule needs lives in its own directory. Two consequences worth stating,
-because both are enforced:
+Your rule must work for whoever installs it. That used to mean "ship everything in one
+directory", because there was no way to publish a library. There is now, so the rule is
+stated as what it always meant:
 
-- **No `shared/` libraries.** The `makeTypesystem` / `makeJSONCodegen` helpers you may
-  have seen come from a Team-tier gated directory. A rule that calls them fails hard for
-  most of its audience.
+- **Every `require()` must be declared.** A `require("acme/typesystem")` in any of your
+  `.luau` files must name either a component listed in your `rule.json` `uses[]`, or one you
+  ship yourself in `components/`. The validator reads your scripts and checks this.
+- **`require()` takes a string literal.** `require(someVariable)` cannot be validated, so a
+  rule whose dependencies cannot be enumerated cannot be published.
 - **No `.env` file.** The loader reads per-rule dotenvs; a published one is a published
   secret.
+
+`makeTypesystem` / `makeJSONCodegen` / `makeBytePackCodegen`, which you may have seen in
+CodeXX's own tree, are first-party internals published nowhere. Depend on a published
+component instead.
+
+## Publishing a component
+
+A **component** is a reusable Luau module. Publish one when two rules — yours or anyone's —
+would otherwise carry the same helper twice.
+
+```
+components/codegen-component/acme/typesystem/
+    component.json   required
+    README.md        required
+    LICENSE          required — cp ../../../../LICENSE .
+    component.luau   required — the module; it must `return` its value
+```
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "acme.typesystem",
+  "kind": "codegen-component",
+  "vendor": "acme",
+  "name": "typesystem",
+  "version": "1.0.0",
+  "description": "C++ type resolution helpers for codegen rules.",
+  "authors": [{ "name": "Jane Doe", "github": "jdoe" }],
+  "license": "MIT"
+}
+```
+
+- **`name` is lowercase.** Two names differing only in case are one file on Windows and macOS
+  and two on Linux, so a mixed-case name would resolve to a different module depending on who
+  installed it.
+- A rule reaches it as `require("acme/typesystem")` — the `.` in the identity becomes a `/`.
+- Components may use other components (`uses[]` in `component.json`). The graph must be
+  acyclic, and **a rule's `uses[]` must be closed**: if you use `acme.typesystem` and it uses
+  `acme.base`, your rule lists both. That is what lets installation stay a flat download with
+  no version solving — and it means a component adding a dependency is a breaking change for
+  its consumers, surfaced here rather than on a user's machine.
+- Anything a single rule needs and nobody else should depend on can go in that rule's own
+  `components/` directory instead: flat `.luau` files, lowercase stems, not separately
+  versioned.
+
+Changes under any `components/` directory are labelled `Needs: Security Review`. A component
+is code that runs inside every rule that requires it.
+
+## Namespaced rules
+
+Set `"namespaced": true` in `rule.json` and your rule installs to
+`.codegen/rules/<vendor>/<Rule>/` and matches `[[<vendor>::<Rule>]]` rather than
+`[[codegen::<Rule>]]`. Two vendors can then both publish a `ToString` and a consumer can use
+both at once.
+
+New rules should set it. It is opt-in because a rule published before namespacing existed
+documents the flat attribute in its own README and sample header, and moving it would stop it
+matching them.
+
+Say the attribute in your README, including the compiler suppression it needs — an unknown
+attribute namespace warns by default:
+
+```cpp
+// clang: -Wno-unknown-attributes
+// gcc:   #pragma GCC diagnostic ignored_attributes "acme::"
+struct [[acme::ToString]] Color { int r, g, b; };
+```
 
 ## Validate before you open the PR
 
