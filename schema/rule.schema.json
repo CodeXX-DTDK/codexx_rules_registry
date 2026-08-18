@@ -107,6 +107,32 @@
         }
       }
     },
+    "uses": {
+      "description": "Components this rule requires, by ADR-079 identity. Declaring anything here also opts the rule out of the consumer's implicit flat shared/ prelude, which is the isolation a published rule needs (ADR-083 section 4).",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component"],
+        "properties": {
+          "component": {
+            "description": "Component identity: vendor.name, e.g. 'acme.typesystem'. Reached from Luau as require(\"acme/typesystem\").",
+            "type": "string",
+            "pattern": "^[a-z0-9-]+\\.[a-z][a-z0-9_-]*$"
+          },
+          "range": {
+            "type": "string",
+            "pattern": "^>=[0-9]+\\.[0-9]+\\.[0-9]+( <[0-9]+\\.[0-9]+\\.[0-9]+)?$"
+          }
+        }
+      }
+    },
+    "namespaced": {
+      "description": "Install under <rulesDir>/<vendor>/ and match [[<vendor>::<rule>]] instead of [[codegen::<rule>]] (ADR-083 section 3). Opt-in: a rule published before namespacing documents the flat attribute in its own README and sample header, and moving it would stop it matching them. New rules should set this true.",
+      "type": "boolean",
+      "default": false
+    },
     "yanked": {
       "description": "Set true to withdraw this rule. Propagates to index.json. The published tag is never deleted (ADR-036 section 5).",
       "type": "boolean",

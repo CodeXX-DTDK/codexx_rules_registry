@@ -1,6 +1,6 @@
 name: Publish rule tags
 
-# On merge to main, tag every rule at its current version. Tags are immutable
+# On merge to main, tag every rule and component at its current version. Tags are immutable
 # (ADR-036 §5 / ADR-081 §4): an existing tag is skipped, never moved, never
 # deleted. A yanked rule keeps its tags and is flagged in index.json instead.
 #
@@ -12,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'rules/**'
+      - 'components/**'
       - 'index.json'
   workflow_dispatch:
 
@@ -54,8 +55,13 @@ jobs:
           git config user.name  "codexx-registry-bot"
           git config user.email "noreply@codexx-dtdk.com"
 
+          # Every publishable unit: self-contained rules, rules with components, and the
+          # components themselves. Missing one of these arrays would leave a merged unit
+          # untagged and therefore uninstallable at any pinned version.
           created=0 skipped=0
-          for tag in $(jq -r '.rules[] | select(.yanked | not) | .tag' index.json); do
+          units=$(jq -r '[.rules[], .rulesWithComponents[], .components[]]
+                          | .[] | select(.yanked | not) | .tag' index.json)
+          for tag in $units; do
             if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
               echo "skip   $tag (already published — tags are immutable)"
               skipped=$((skipped + 1))

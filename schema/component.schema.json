@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/CodeXX-DTDK/codexx_rules_registry/main/schema/component.schema.json",
+  "title": "CodeXX component manifest",
+  "description": "Manifest for a reusable Luau component published to the CodeXX rules registry (ADR-083 section 4). A component is a module a rule reaches with require(\"<vendor>/<name>\").",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "id",
+    "kind",
+    "vendor",
+    "name",
+    "version",
+    "description",
+    "authors",
+    "license"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "description": "Version of this manifest schema. Only 1 exists.",
+      "const": 1
+    },
+    "id": {
+      "description": "ADR-079 identity: vendor.name, both segments lowercase, exactly one dot.",
+      "type": "string",
+      "pattern": "^[a-z0-9-]+\\.[a-z][a-z0-9_-]*$"
+    },
+    "kind": {
+      "description": "Distinguishes a Luau component from the tool components ADR-039 ships. Rules read 'codegen'; this reads 'codegen-component'.",
+      "const": "codegen-component"
+    },
+    "vendor": {
+      "description": "Vendor tag. Must match the parent directory name. 'codexx' is reserved to CodeXX-DTDK org members.",
+      "type": "string",
+      "pattern": "^[a-z0-9-]+$"
+    },
+    "name": {
+      "description": "Component name; the second segment of its require() key. LOWERCASE ONLY, deliberately: two names differing in case are one file on Windows and macOS and two on Linux, so a mixed-case name would resolve differently depending on the consumer's filesystem.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_-]*$"
+    },
+    "version": {
+      "description": "Component version, semver MAJOR.MINOR.PATCH. Must increase on every content change.",
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "description": {
+      "description": "One sentence describing what the component provides.",
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 200
+    },
+    "authors": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "github": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*$" },
+          "email": { "type": "string", "format": "email" }
+        }
+      }
+    },
+    "license": {
+      "description": "SPDX identifier. Published components are MIT; the bundled LICENSE must be byte-identical to the repo root LICENSE.",
+      "const": "MIT"
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri"
+    },
+    "keywords": {
+      "type": "array",
+      "maxItems": 10,
+      "items": { "type": "string", "pattern": "^[a-z0-9-]+$" }
+    },
+    "requires": {
+      "description": "codegen version constraint, ADR-067 section 2 grammar.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component", "range"],
+        "properties": {
+          "component": { "type": "string", "enum": ["codegen"] },
+          "range": {
+            "type": "string",
+            "pattern": "^>=[0-9]+\\.[0-9]+\\.[0-9]+( <[0-9]+\\.[0-9]+\\.[0-9]+)?$"
+          }
+        }
+      }
+    },
+    "uses": {
+      "description": "Other components this one requires. Components may compose; the validator checks the graph is acyclic and that every consuming rule's uses[] is CLOSED over these, which is what lets the installer stay a flat loop with no solver.",
+      "type": "array",
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["component"],
+        "properties": {
+          "component": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+\\.[a-z][a-z0-9_-]*$"
+          },
+          "range": {
+            "type": "string",
+            "pattern": "^>=[0-9]+\\.[0-9]+\\.[0-9]+( <[0-9]+\\.[0-9]+\\.[0-9]+)?$"
+          }
+        }
+      }
+    },
+    "yanked": {
+      "description": "Set true to withdraw this component. The published tag is never deleted.",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}
