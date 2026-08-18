@@ -93,7 +93,7 @@ Your rule must work for whoever installs it. That used to mean "ship everything 
 directory", because there was no way to publish a library. There is now, so the rule is
 stated as what it always meant:
 
-- **Every `require()` must be declared.** A `require("acme/typesystem")` in any of your
+- **Every `require()` must be declared.** A `require("acme/typemap")` in any of your
   `.luau` files must name either a component listed in your `rule.json` `uses[]`, or one you
   ship yourself in `components/`. The validator reads your scripts and checks this.
 - **`require()` takes a string literal.** `require(someVariable)` cannot be validated, so a
@@ -101,9 +101,10 @@ stated as what it always meant:
 - **No `.env` file.** The loader reads per-rule dotenvs; a published one is a published
   secret.
 
-`makeTypesystem` / `makeJSONCodegen` / `makeBytePackCodegen`, which you may have seen in
-CodeXX's own tree, are first-party internals published nowhere. Depend on a published
-component instead.
+The same applies to globals. A rule written against a tree that already had helpers sitting
+in its flat `shared/` prelude will not work anywhere else — and declaring `uses[]` opts your
+rule out of that prelude anyway. Anything your scripts call must come from the rule itself or
+from a component it names.
 
 ## Publishing a component
 
@@ -111,7 +112,7 @@ A **component** is a reusable Luau module. Publish one when two rules — yours 
 would otherwise carry the same helper twice.
 
 ```
-components/codegen-component/acme/typesystem/
+components/codegen-component/acme/typemap/
     component.json   required
     README.md        required
     LICENSE          required — cp ../../../../LICENSE .
@@ -121,10 +122,10 @@ components/codegen-component/acme/typesystem/
 ```json
 {
   "schemaVersion": 1,
-  "id": "acme.typesystem",
+  "id": "acme.typemap",
   "kind": "codegen-component",
   "vendor": "acme",
-  "name": "typesystem",
+  "name": "typemap",
   "version": "1.0.0",
   "description": "C++ type resolution helpers for codegen rules.",
   "authors": [{ "name": "Jane Doe", "github": "jdoe" }],
@@ -135,9 +136,9 @@ components/codegen-component/acme/typesystem/
 - **`name` is lowercase.** Two names differing only in case are one file on Windows and macOS
   and two on Linux, so a mixed-case name would resolve to a different module depending on who
   installed it.
-- A rule reaches it as `require("acme/typesystem")` — the `.` in the identity becomes a `/`.
+- A rule reaches it as `require("acme/typemap")` — the `.` in the identity becomes a `/`.
 - Components may use other components (`uses[]` in `component.json`). The graph must be
-  acyclic, and **a rule's `uses[]` must be closed**: if you use `acme.typesystem` and it uses
+  acyclic, and **a rule's `uses[]` must be closed**: if you use `acme.typemap` and it uses
   `acme.base`, your rule lists both. That is what lets installation stay a flat download with
   no version solving — and it means a component adding a dependency is a breaking change for
   its consumers, surfaced here rather than on a user's machine.

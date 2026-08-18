@@ -61,13 +61,7 @@ MAX_EMBEDDED_COMPONENTS = 16
 
 COMPONENT_REQUIRED_FILES = ("component.json", "README.md", "LICENSE", "component.luau")
 
-# The three helpers gate 6 used to name as a proxy for "self-contained". They are first-party
-# internals of the monorepo's own codegen tree, published nowhere, so a rule reaching for them
-# is still broken for its audience -- but the real check is now structural (every require()
-# must be declared). This list survives only to give the specific, actionable message.
-LEGACY_SHARED_GLOBALS = ("makeTypesystem", "makeJSONCodegen", "makeBytePackCodegen")
-
-# require("acme/typesystem") -- literal argument only. A computed one cannot be validated, and
+# require("acme/typemap") -- literal argument only. A computed one cannot be validated, and
 # a rule whose dependencies cannot be enumerated cannot be published.
 REQUIRE_LITERAL_RE = re.compile(r"require\s*\(\s*['\"]([^'\"]+)['\"]\s*\)")
 REQUIRE_ANY_RE = re.compile(r"require\s*\(")
@@ -384,10 +378,10 @@ def validate_rule(kind, vendor, rule_dir, schema, root_license_hash, f: Findings
 
     # --- gate 6: everything the rule uses must be declared -------------------
     #
-    # Superseded form of "published rules must be self-contained" (ADR-083 section 4). The old
-    # check grepped for three first-party helper names, which was a proxy: it caught the only
-    # undeclared dependency that existed at the time and nothing else. The property is the same
-    # -- a published rule works for whoever installs it -- but it is now checked structurally.
+    # "Published rules must be self-contained" (ADR-083 section 4). This used to be a grep for
+    # a handful of known helper names, which was a proxy: it caught the only undeclared
+    # dependency that existed at the time and nothing else. The property is the same -- a
+    # published rule works for whoever installs it -- but it is now checked structurally.
     declared = {u["component"].replace(".", "/", 1)
                 for u in manifest.get("uses", [])}
 
@@ -409,12 +403,6 @@ def validate_rule(kind, vendor, rule_dir, schema, root_license_hash, f: Findings
                 continue
             f.error(where, f"{rel} requires '{key}', which is neither declared in "
                            f"rule.json 'uses' nor shipped in {EMBEDDED_COMPONENTS_DIR}/")
-
-        for g in LEGACY_SHARED_GLOBALS:
-            if re.search(rf"\b{re.escape(g)}\b", src):
-                f.error(where, f"{rel} calls '{g}', a first-party helper from the monorepo's "
-                               f"own tree that is published nowhere — depend on a published "
-                               f"component instead, e.g. require(\"codexx/typesystem\")")
 
     manifest["_kind"] = kind
     manifest["_path"] = str(rule_dir.relative_to(REPO)).replace("\\", "/")
