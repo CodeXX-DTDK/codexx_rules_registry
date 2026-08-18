@@ -33,24 +33,19 @@ jobs:
       - name: Install validator dependencies
         run: pip install pyyaml jsonschema
 
-      # The reserved-vendor gate needs to know who may claim `codexx`. Public
-      # org members are readable anonymously; if the call fails we write an
-      # empty list, which fails closed (nobody may claim it) rather than open.
-      - name: Resolve org membership
-        if: github.event_name == 'pull_request'
-        run: |
-          curl -sf "https://api.github.com/orgs/CodeXX-DTDK/public_members?per_page=100" \
-            | python3 -c 'import json,sys; [print(m["login"]) for m in json.load(sys.stdin)]' \
-            > org-members.txt || : > org-members.txt
-          echo "resolved $(wc -l < org-members.txt) public org member(s)"
-
+      # The reserved-vendor gate needs to know whether the author is inside the
+      # org. author_association is GitHub's own answer, present in the event
+      # payload: it costs no API call, a fork cannot forge it, and — unlike the
+      # /public_members list this used to scrape — it reports MEMBER for someone
+      # whose org membership is private. Scraping public members made `codexx`
+      # unclaimable by the very people it is reserved for.
       - name: Validate (pull request)
         if: github.event_name == 'pull_request'
         run: |
           python3 scripts/validate_registry.py \
             --base "origin/${{ github.base_ref }}" \
             --actor "${{ github.event.pull_request.user.login }}" \
-            --org-members org-members.txt
+            --actor-association "${{ github.event.pull_request.author_association }}"
 
       - name: Validate (push)
         if: github.event_name != 'pull_request'

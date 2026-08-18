@@ -40,6 +40,11 @@ INDEX_PATH = REPO / "index.json"
 KINDS = ("codegen",)
 RESERVED_VENDORS = ("codexx",)
 
+# GitHub's author_association values that mean "inside the org". COLLABORATOR is
+# deliberately absent: a repo collaborator is not necessarily an org member, and the
+# reservation is on the org's identity.
+ORG_ASSOCIATIONS = ("OWNER", "MEMBER")
+
 COMPONENTS_ROOT = REPO / "components"
 COMPONENT_SCHEMA_PATH = REPO / "schema" / "component.schema.json"
 COMPONENT_KIND = "codegen-component"
@@ -416,18 +421,60 @@ def validate_rule(kind, vendor, rule_dir, schema, root_license_hash, f: Findings
     return manifest
 
 
-def check_reserved_vendors(manifests, actor: str | None, members: set[str], f: Findings):
+def changed_paths(base: str) -> set[str] | None:
+    """Repo-relative paths touched relative to `base`. None if git cannot answer."""
+    try:
+        out = subprocess.run(["git", "diff", "--name-only", base],
+                             cwd=REPO, capture_output=True, text=True)
+    except FileNotFoundError:
+        return None
+    if out.returncode != 0:
+        return None
+    return {ln.strip() for ln in out.stdout.splitlines() if ln.strip()}
+
+
+def check_reserved_vendors(manifests, actor: str | None, association: str | None,
+                           touched: set[str] | None, f: Findings):
     """Gate 2 — the ADR-079 OQ6 trust boundary.
 
     The reservation is only meaningful where vendor and provenance are both
     known. That is here, at publication, and nowhere else.
+
+    Two things this must get right, and originally did not:
+
+    Membership comes from the PR's `author_association`, NOT from the public
+    org-members list. A member whose org membership is private does not appear
+    in /public_members, so resolving it that way made the reserved tag
+    unclaimable by anyone — including the people it is reserved FOR. GitHub
+    computes author_association itself and reports MEMBER regardless of
+    visibility, it costs no API call, and a fork cannot forge it.
+
+    The gate applies only to units this change actually TOUCHES. Checking every
+    manifest in the tree meant an outside contributor adding their own rule
+    failed on a pre-existing codexx rule they had never opened — which would
+    have rejected every third-party contribution the registry exists to accept.
     """
     if actor is None:
-        return  # not running in a PR context; nothing to check against
+        return  # not running in a PR context; nothing to attribute a claim to
+
+    is_org_member = (association or "").upper() in ORG_ASSOCIATIONS
+
+    if touched is None:
+        f.warn("scripts/validate_registry.py",
+               "could not determine which units this change touches — applying the "
+               "reserved-vendor gate to the whole tree")
+
     for m in manifests:
-        if m["vendor"] in RESERVED_VENDORS and actor.lower() not in members:
-            f.error(m["_path"], f"vendor '{m['vendor']}' is reserved to CodeXX-DTDK "
-                                f"org members; '{actor}' is not one")
+        if m["vendor"] not in RESERVED_VENDORS:
+            continue
+        # Untouched by this change: not this author's claim to make, either way.
+        if touched is not None and not any(p == m["_path"] or p.startswith(m["_path"] + "/")
+                                           for p in touched):
+            continue
+        if not is_org_member:
+            f.error(m["_path"],
+                    f"vendor '{m['vendor']}' is reserved to CodeXX-DTDK org members; "
+                    f"'{actor}' is {association or 'unaffiliated'}")
 
 
 def check_version_bumps(manifests, base: str, f: Findings):
@@ -533,8 +580,9 @@ def main() -> int:
                     help="git ref to compare against for the version-bump gate")
     ap.add_argument("--actor", metavar="LOGIN",
                     help="PR author's GitHub login, for the reserved-vendor gate")
-    ap.add_argument("--org-members", metavar="FILE",
-                    help="file of CodeXX-DTDK member logins, one per line")
+    ap.add_argument("--actor-association", metavar="ASSOC",
+                    help="PR author_association as GitHub reports it (OWNER/MEMBER/"
+                         "COLLABORATOR/CONTRIBUTOR/NONE), for the reserved-vendor gate")
     args = ap.parse_args()
 
     f = Findings()
@@ -576,11 +624,9 @@ def main() -> int:
 
     check_uses_closure(manifests, component_manifests, f)
 
-    members = set()
-    if args.org_members and Path(args.org_members).is_file():
-        members = {ln.strip().lower() for ln in
-                   Path(args.org_members).read_text().splitlines() if ln.strip()}
-    check_reserved_vendors(manifests + component_manifests, args.actor, members, f)
+    touched = changed_paths(args.base) if args.base else None
+    check_reserved_vendors(manifests + component_manifests, args.actor,
+                           args.actor_association, touched, f)
 
     if args.base:
         check_version_bumps(manifests, args.base, f)
